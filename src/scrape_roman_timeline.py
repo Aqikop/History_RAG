@@ -4,21 +4,63 @@ year / date / event records, and saves as both JSON and CSV.
 
 Usage:
     pip install requests
-    python scrape_roman_timeline.py
+    python scrape_roman_timeline.py [--output PATH] [--output-csv PATH]
+                                     [--raw-output PATH] [--dry-run]
+                                     [--log-level LEVEL]
 
-Output:
-    roman_timeline.json
-    roman_timeline.csv
-    raw_wikitext.txt   (debug dump of the raw source, for inspection)
+Output (default paths):
+    data/interim/events.json
+    data/interim/events.csv
+    data/raw/roman_timeline.wikitext   (raw source dump, for debugging)
 """
 
+import argparse
 import json
 import csv
+import logging
 import re
+from pathlib import Path
+
 import requests
+
+log = logging.getLogger("scrape_roman_timeline")
+
+
+def _detect_project_root() -> Path:
+    """
+    Default data paths must resolve to the same place regardless of which
+    directory you happen to run the script FROM (e.g. project root vs.
+    inside src/) -- a plain relative path like "data/interim/events.json"
+    is resolved against the current working directory, not the script's
+    location, and silently creates a stray data/ folder wherever you
+    happened to `cd` into.
+
+    Detects the real project root by checking, relative to this script's
+    own location, for an existing "data" directory in either of the two
+    layouts this project uses:
+      - scripts inside <root>/src/   -> data/ is a sibling of src/
+      - scripts directly in <root>/  -> data/ is a sibling of the script
+    Falls back to the src/ layout (this project's documented scaffold) if
+    neither exists yet (e.g. first run before data/ has been created).
+    """
+    script_dir = Path(__file__).resolve().parent
+    in_src_layout = script_dir.parent
+    at_root_layout = script_dir
+    if (in_src_layout / "data").exists():
+        return in_src_layout
+    if (at_root_layout / "data").exists():
+        return at_root_layout
+    return in_src_layout
+
+
+PROJECT_ROOT = _detect_project_root()
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 PAGE_TITLE = "Timeline of Roman history"
+
+DEFAULT_OUTPUT = str(PROJECT_ROOT / "data" / "interim" / "events.json")
+DEFAULT_OUTPUT_CSV = str(PROJECT_ROOT / "data" / "interim" / "events.csv")
+DEFAULT_RAW_OUTPUT = str(PROJECT_ROOT / "data" / "raw" / "roman_timeline.wikitext")
 
 # Wikimedia requires a descriptive User-Agent on all API requests, or it
 # returns 403. Feel free to replace the email with your own contact info.
@@ -63,8 +105,23 @@ def strip_cell_attributes(cell: str) -> str:
     Wikitable cells can carry formatting attributes before the actual
     content, separated by a single '|', e.g.:
         rowspan="2" valign="top" | 753 BC
-    Strip the attribute prefix and keep only the real value. Must not
-    touch wiki links like [[Page|Display]] (starts with '[[').
+    Strip that attribute prefix and keep only the real value.
+
+    Must NOT touch:
+      - wiki links like [[Page|Display]] (starts with '[[')
+      - free-form event prose that happens to contain '=' before a '|'
+        elsewhere in the text -- e.g. a named citation like
+        <ref name=":0">{{cite book|last=Forsythe|first=Gary|...}}</ref>
+        also matches the naive "'=' before '|'" pattern, but is NOT a
+        table attribute and must be left alone for the ref/template
+        stripping steps (later in strip_wiki_markup) to handle properly.
+
+    Genuine table attributes only ever appear as the literal first
+    characters of a cell, before any wiki markup -- so we only strip
+    when the candidate attribute prefix contains no '[[', '{{', or '<'
+    (which would indicate we've wandered into real content/citations),
+    and we only strip once (real attribute prefixes are a single
+    "attrs | value" split, never a chain of several).
     """
     cell = cell.strip()
     if cell.startswith("[[") or "|" not in cell:
@@ -281,19 +338,44 @@ def normalize_year(year_str: str):
     return -(num - 1) if is_bc else num
 
 
-def main():
-    print(f"Fetching wikitext for '{PAGE_TITLE}'...")
-    wikitext = fetch_wikitext(PAGE_TITLE)
+def run(output=DEFAULT_OUTPUT, output_csv=DEFAULT_OUTPUT_CSV,
+        raw_output=DEFAULT_RAW_OUTPUT, page_title=PAGE_TITLE, dry_run=False):
+    """
+    Fetch + parse the timeline article, writing events JSON/CSV and a raw
+    wikitext dump. Returns the path to the events JSON (as a string), or
+    None if dry_run.
+    """
+    raw_path = Path(raw_output)
 
-    with open("raw_wikitext.txt", "w", encoding="utf-8") as f:
-        f.write(wikitext)
-    print("Saved raw_wikitext.txt (for debugging table structure)")
+    if dry_run:
+        if raw_path.exists():
+            log.info(f"[dry-run] Found existing {raw_path}, parsing it to preview output "
+                      f"(skipping network fetch)")
+            wikitext = raw_path.read_text(encoding="utf-8")
+            events = parse_timeline(wikitext)
+            log.info(f"[dry-run] Would parse {len(events)} events and write to "
+                      f"{output} / {output_csv}")
+        else:
+            log.info(f"[dry-run] Would fetch wikitext for '{page_title}' from Wikipedia, "
+                      f"write raw dump to {raw_output}, parse it, and write events to "
+                      f"{output} / {output_csv}. (No cached raw wikitext found to preview "
+                      f"actual counts.)")
+        return None
 
-    print("Parsing timeline table...")
+    log.info(f"Fetching wikitext for '{page_title}'...")
+    wikitext = fetch_wikitext(page_title)
+
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_text(wikitext, encoding="utf-8")
+    log.info(f"Saved raw wikitext to {raw_path}")
+
+    log.info("Parsing timeline table...")
     events = parse_timeline(wikitext)
-    print(f"Parsed {len(events)} events.")
+    log.info(f"Parsed {len(events)} events.")
 
-    with open("roman_timeline.json", "w", encoding="utf-8") as f:
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(events, f, indent=2, ensure_ascii=False)
 
     csv_rows = []
@@ -302,14 +384,41 @@ def main():
         row["wiki_links"] = "|".join(l["wiki_title"] for l in e["wiki_links"])
         csv_rows.append(row)
 
-    with open("roman_timeline.csv", "w", encoding="utf-8", newline="") as f:
+    output_csv_path = Path(output_csv)
+    output_csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(
             f, fieldnames=["year", "year_normalized", "era", "date", "event", "wiki_links"]
         )
         writer.writeheader()
         writer.writerows(csv_rows)
 
-    print("Saved roman_timeline.json and roman_timeline.csv")
+    log.info(f"Saved {output_path} and {output_csv_path}")
+    return str(output_path)
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output", default=DEFAULT_OUTPUT,
+                         help=f"Path to write events JSON (default: {DEFAULT_OUTPUT})")
+    parser.add_argument("--output-csv", default=DEFAULT_OUTPUT_CSV,
+                         help=f"Path to write events CSV (default: {DEFAULT_OUTPUT_CSV})")
+    parser.add_argument("--raw-output", default=DEFAULT_RAW_OUTPUT,
+                         help=f"Path to write raw wikitext dump (default: {DEFAULT_RAW_OUTPUT})")
+    parser.add_argument("--page-title", default=PAGE_TITLE,
+                         help=f"Wikipedia page title to fetch (default: '{PAGE_TITLE}')")
+    parser.add_argument("--dry-run", action="store_true",
+                         help="Don't fetch or write files; log what would happen")
+    parser.add_argument("--log-level", default="INFO",
+                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    return parser
+
+
+def main():
+    args = build_arg_parser().parse_args()
+    logging.basicConfig(level=args.log_level, format="%(levelname)s: %(message)s")
+    run(output=args.output, output_csv=args.output_csv, raw_output=args.raw_output,
+        page_title=args.page_title, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

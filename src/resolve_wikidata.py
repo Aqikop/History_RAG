@@ -1,30 +1,55 @@
 """
-Resolves the wiki_links captured in roman_timeline.json to Wikidata QIDs,
-using Wikipedia's pageprops API (a direct, unambiguous Wikipedia-article
--> Wikidata-item mapping -- no fuzzy search/disambiguation needed, since
+Resolves the wiki_links captured in events.json to Wikidata QIDs, using
+Wikipedia's pageprops API (a direct, unambiguous Wikipedia-article ->
+Wikidata-item mapping -- no fuzzy search/disambiguation needed, since
 each link already points at one specific Wikipedia article).
 
 Usage:
     pip install requests
-    python resolve_wikidata.py
+    python resolve_wikidata.py [--input PATH] [--output PATH]
+                                [--unresolved-output PATH] [--dry-run]
+                                [--log-level LEVEL]
 
-Requires roman_timeline.json (from scrape_roman_timeline.py) in the same
-directory.
-
-Output:
-    roman_timeline_linked.json   -- events with resolved Wikidata IDs
-    unresolved_titles.txt        -- titles with no Wikidata item (for review)
+Output (default paths):
+    data/interim/events_resolved.json   -- events with resolved Wikidata IDs
+    data/interim/unresolved_titles.txt  -- titles with no Wikidata item
 """
 
+import argparse
 import json
+import logging
 import time
+from pathlib import Path
+
 import requests
+
+log = logging.getLogger("resolve_wikidata")
+
+
+def _detect_project_root() -> Path:
+    """See scrape_roman_timeline._detect_project_root() for rationale --
+    default data paths must not depend on the current working directory."""
+    script_dir = Path(__file__).resolve().parent
+    in_src_layout = script_dir.parent
+    at_root_layout = script_dir
+    if (in_src_layout / "data").exists():
+        return in_src_layout
+    if (at_root_layout / "data").exists():
+        return at_root_layout
+    return in_src_layout
+
+
+PROJECT_ROOT = _detect_project_root()
 
 WIKI_API = "https://en.wikipedia.org/w/api.php"
 HEADERS = {
     "User-Agent": "RAGDatasetBuilder/1.0 (https://example.com; you@example.com)"
 }
 BATCH_SIZE = 50  # MediaWiki API limit per request for non-bot accounts
+
+DEFAULT_INPUT = str(PROJECT_ROOT / "data" / "interim" / "events.json")
+DEFAULT_OUTPUT = str(PROJECT_ROOT / "data" / "interim" / "events_resolved.json")
+DEFAULT_UNRESOLVED_OUTPUT = str(PROJECT_ROOT / "data" / "interim" / "unresolved_titles.txt")
 
 # Known bad wiki-link titles that will never resolve via the API -- e.g.
 # typos in the live Wikipedia article's own wikitext (the link target
@@ -66,7 +91,7 @@ def _query_batch(batch, attempt_label=""):
             return data["query"]
         except Exception as e:
             last_err = e
-            print(f"  Batch{attempt_label} attempt {attempt + 1} failed: {e}")
+            log.warning(f"  Batch{attempt_label} attempt {attempt + 1} failed: {e}")
             time.sleep(1.0 * (attempt + 1))
     raise RuntimeError(f"Batch{attempt_label} failed after 3 attempts: {last_err}")
 
@@ -121,7 +146,7 @@ def resolve_titles_to_qids(titles):
 
     unresolved = [t for t, q in result.items() if not q]
     if unresolved:
-        print(f"Re-checking {len(unresolved)} unresolved titles individually...")
+        log.info(f"Re-checking {len(unresolved)} unresolved titles individually...")
         for title in unresolved:
             _resolve_one_batch([title], result)
             time.sleep(0.2)
@@ -129,8 +154,14 @@ def resolve_titles_to_qids(titles):
     return result
 
 
-def main():
-    with open("roman_timeline.json", encoding="utf-8") as f:
+def run(input_path=DEFAULT_INPUT, output=DEFAULT_OUTPUT,
+        unresolved_output=DEFAULT_UNRESOLVED_OUTPUT, dry_run=False):
+    """
+    Resolve all wiki_links in the events at `input_path` to Wikidata QIDs.
+    Returns the path to the resolved events JSON (as a string), or None
+    if dry_run.
+    """
+    with open(input_path, encoding="utf-8") as f:
         events = json.load(f)
 
     unique_titles = sorted({
@@ -138,8 +169,14 @@ def main():
         for event in events
         for link in event["wiki_links"]
     })
-    print(f"Resolving {len(unique_titles)} unique linked titles to Wikidata IDs...")
 
+    if dry_run:
+        log.info(f"[dry-run] Would resolve {len(unique_titles)} unique linked titles "
+                  f"to Wikidata IDs (~{-(-len(unique_titles) // BATCH_SIZE)} batched "
+                  f"API requests), then write results to {output} / {unresolved_output}.")
+        return None
+
+    log.info(f"Resolving {len(unique_titles)} unique linked titles to Wikidata IDs...")
     title_to_qid = resolve_titles_to_qids(unique_titles)
 
     override_count = 0
@@ -148,23 +185,51 @@ def main():
             title_to_qid[title] = qid
             override_count += 1
     if override_count:
-        print(f"Applied {override_count} manual override(s) for known bad titles.")
+        log.info(f"Applied {override_count} manual override(s) for known bad titles.")
 
     resolved_count = sum(1 for q in title_to_qid.values() if q)
-    print(f"Resolved {resolved_count} / {len(unique_titles)} titles.")
+    log.info(f"Resolved {resolved_count} / {len(unique_titles)} titles.")
 
     for event in events:
         for link in event["wiki_links"]:
             link["wikidata_id"] = title_to_qid.get(link["wiki_title"])
 
-    with open("roman_timeline_linked.json", "w", encoding="utf-8") as f:
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
         json.dump(events, f, indent=2, ensure_ascii=False)
 
     unresolved = sorted(t for t, q in title_to_qid.items() if not q)
-    with open("unresolved_titles.txt", "w", encoding="utf-8") as f:
-        f.write("\n".join(unresolved))
-    print(f"{len(unresolved)} titles had no Wikidata item (see unresolved_titles.txt)")
-    print("Saved roman_timeline_linked.json")
+    unresolved_path = Path(unresolved_output)
+    unresolved_path.parent.mkdir(parents=True, exist_ok=True)
+    unresolved_path.write_text("\n".join(unresolved), encoding="utf-8")
+
+    log.info(f"{len(unresolved)} titles had no Wikidata item (see {unresolved_path})")
+    log.info(f"Saved {output_path}")
+    return str(output_path)
+
+
+def build_arg_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", default=DEFAULT_INPUT,
+                         help=f"Path to events JSON to read (default: {DEFAULT_INPUT})")
+    parser.add_argument("--output", default=DEFAULT_OUTPUT,
+                         help=f"Path to write resolved events JSON (default: {DEFAULT_OUTPUT})")
+    parser.add_argument("--unresolved-output", default=DEFAULT_UNRESOLVED_OUTPUT,
+                         help=f"Path to write unresolved titles list "
+                              f"(default: {DEFAULT_UNRESOLVED_OUTPUT})")
+    parser.add_argument("--dry-run", action="store_true",
+                         help="Don't call the API or write files; log what would happen")
+    parser.add_argument("--log-level", default="INFO",
+                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    return parser
+
+
+def main():
+    args = build_arg_parser().parse_args()
+    logging.basicConfig(level=args.log_level, format="%(levelname)s: %(message)s")
+    run(input_path=args.input, output=args.output,
+        unresolved_output=args.unresolved_output, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
