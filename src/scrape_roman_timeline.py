@@ -1,4 +1,11 @@
 """
+Scrapes Wikipedia's "Timeline of Roman history" article into structured
+year / date / event records, and saves as both JSON and CSV.
+
+Usage:
+    pip install requests
+    python scrape_roman_timeline.py
+
 Output:
     roman_timeline.json
     roman_timeline.csv
@@ -88,6 +95,28 @@ def strip_wiki_markup(text: str) -> str:
     return text.strip(" |\n\t")
 
 
+LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]")
+
+
+def extract_links(text: str):
+    """
+    Pull [[Target|Display]] / [[Target]] wiki-link targets out of a cell's
+    raw text, for later resolving to Wikidata IDs. Must run on text that
+    still has <ref>...</ref> citation footnotes removed (citation
+    templates often contain their own wikilinks, e.g. to publishers,
+    which we don't want to treat as event-relevant entities).
+    """
+    text = strip_cell_attributes(expand_dr_template(text))
+    text = re.sub(r"<ref[^>]*/>", "", text)
+    text = re.sub(r"<ref.*?</ref>", "", text, flags=re.DOTALL)
+    links = []
+    for m in LINK_RE.finditer(text):
+        target = m.group(1).strip()
+        display = (m.group(2) or target).strip()
+        links.append({"wiki_title": target, "text": display})
+    return links
+
+
 def split_cells(content: str):
     """Split a cell-line's content on '||' (and '!!', seen interchangeably
     in this article's header rows) into individual raw cell strings."""
@@ -115,11 +144,14 @@ def parse_timeline(wikitext: str):
     rows = []
     pending_cells = []
     in_table = False
+    current_era = None
+
+    SECTION_RE = re.compile(r"^==\s*([^=]+?)\s*==$")
 
     def flush_row():
         nonlocal pending_cells
         if pending_cells:
-            rows.append(pending_cells)
+            rows.append((current_era, pending_cells))
             pending_cells = []
 
     def process_cell_line(line):
@@ -132,6 +164,13 @@ def parse_timeline(wikitext: str):
     lines = wikitext.split("\n")
     for raw_line in lines:
         line = raw_line.strip()
+
+        m = SECTION_RE.match(line)
+        if m:
+            flush_row()
+            current_era = m.group(1).strip()
+            in_table = False
+            continue
 
         if line.startswith("{|"):
             in_table = True
@@ -170,8 +209,8 @@ def parse_timeline(wikitext: str):
 
     current_year = None
     parsed = []
-    for cells in rows:
-        cells = [strip_wiki_markup(c) for c in cells]
+    for era, raw_cells in rows:
+        cells = [strip_wiki_markup(c) for c in raw_cells]
 
         # Skip real header rows (all non-empty cells are column titles)
         non_empty = [c.lower() for c in cells if c]
@@ -180,10 +219,13 @@ def parse_timeline(wikitext: str):
 
         if len(cells) >= 3:
             year, date, event = cells[0], cells[1], " ".join(cells[2:]).strip()
+            raw_event_cell = " ".join(raw_cells[2:])
         elif len(cells) == 2:
             year, date, event = "", cells[0], cells[1]
+            raw_event_cell = raw_cells[1]
         elif len(cells) == 1:
             year, date, event = "", "", cells[0]
+            raw_event_cell = raw_cells[0]
         else:
             continue
 
@@ -196,13 +238,46 @@ def parse_timeline(wikitext: str):
         if not event:
             continue
 
+        links = extract_links(raw_event_cell)
+
         parsed.append({
             "year": year or "",
+            "year_normalized": normalize_year(year),
+            "era": era or "",
             "date": date or "",
             "event": event,
+            "wiki_links": links,
         })
 
     return parsed
+
+
+# Matches "754 BC", "AD 98", or a bare "1071" (implicitly AD, used by the
+# article's later/medieval sections which drop the "AD" prefix).
+YEAR_RE = re.compile(r"^(?:AD\s*)?(\d+)\s*(BC)?$", re.IGNORECASE)
+
+
+def normalize_year(year_str: str):
+    """
+    Convert a display year string into a single signed integer using
+    astronomical year numbering, so the whole timeline sorts/filters
+    correctly with no BC/AD discontinuity:
+        1 BC  -> 0
+        2 BC  -> -1
+        100 BC -> -99
+        AD 1  -> 1
+        AD 98 -> 98
+        1071  -> 1071
+    Returns None if the year string can't be parsed (e.g. empty).
+    """
+    if not year_str:
+        return None
+    m = YEAR_RE.match(year_str.strip())
+    if not m:
+        return None
+    num = int(m.group(1))
+    is_bc = bool(m.group(2))
+    return -(num - 1) if is_bc else num
 
 
 def main():
@@ -220,10 +295,18 @@ def main():
     with open("roman_timeline.json", "w", encoding="utf-8") as f:
         json.dump(events, f, indent=2, ensure_ascii=False)
 
+    csv_rows = []
+    for e in events:
+        row = dict(e)
+        row["wiki_links"] = "|".join(l["wiki_title"] for l in e["wiki_links"])
+        csv_rows.append(row)
+
     with open("roman_timeline.csv", "w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["year", "date", "event"])
+        writer = csv.DictWriter(
+            f, fieldnames=["year", "year_normalized", "era", "date", "event", "wiki_links"]
+        )
         writer.writeheader()
-        writer.writerows(events)
+        writer.writerows(csv_rows)
 
     print("Saved roman_timeline.json and roman_timeline.csv")
 
