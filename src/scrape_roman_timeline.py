@@ -67,13 +67,14 @@ def strip_cell_attributes(cell: str) -> str:
     touch wiki links like [[Page|Display]] (starts with '[[').
     """
     cell = cell.strip()
-    while "|" in cell and not cell.startswith("[["):
-        prefix, _, rest = cell.partition("|")
-        if "=" in prefix:
-            cell = rest.strip()
-        else:
-            break
-    return cell
+    if cell.startswith("[[") or "|" not in cell:
+        return cell
+    prefix, _, rest = cell.partition("|")
+    if "=" not in prefix:
+        return cell
+    if any(marker in prefix for marker in ("[[", "{{", "<")):
+        return cell
+    return rest.strip()
 
 
 def strip_wiki_markup(text: str) -> str:
