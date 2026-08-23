@@ -1,0 +1,66 @@
+This is a timeline of Roman history.
+
+{| class="wikitable"
+! Year !! Date !! Event
+|-
+| {{dr|y|y|-754|0|ysa}}
+|
+| Battle of Alba Longa; the king of Alba Longa was overthrown by his brother.
+|-
+| {{dr|y|y|-753|0|ysa}}
+| 21 April
+| Rome was founded, according to legend, by [[Romulus and Remus|Romulus]].
+|-
+| {{dr|y|y|-752|0|ysa}}
+|
+| Romulus, first king of Rome, celebrated the first Roman triumph after a victory over
+a neighbouring city, according to tradition.
+|-
+| {{dr|y|y|-509|0|ysa}}
+|
+| The Roman Kingdom ends and [[Roman Republic|the Republic]] is established after the expulsion of [[Lucius Tarquinius Superbus|Tarquin the Proud]]<ref name="livy">{{cite book|last=Livy|title=Ab Urbe Condita|publisher=[[Oxford University Press]]}}</ref>
+|-
+| style="text-align:center" | {{dr|y|y|-494|0|ysa}}
+|
+| The [[First secessio plebis|first plebeian secession]] leads to the creation of the [[Tribune of the plebs|Tribune of the Plebs]]
+|-
+| {{dr|y|y|-390|0|ysa}}
+|
+| A malformed row with an unclosed citation template {{cite book|title=Test that must not crash the parser
+|}
+
+{| class="wikitable"
+! Year !! Date !! Event
+|-
+| {{dr|y|y|-44|0|ysa}}
+|
+| Assassination of [[Julius Caesar]] on the Ides of March.
+|-
+|
+| Formation of the Second Triumvirate.
+|-
+| [[AD 14]]
+| 19 August
+| [[Augustus]] died.
+|-
+|
+| [[Germanicus]], adoptive son of [[Tiberius]], was appointed commander of Roman forces in Germania.
+|-
+| [[AD 98]]
+| 27 January
+| [[Nerva]] died and was succeeded by [[Trajan]].
+|}
+
+{| class="wikitable"
+! Year !! Date !! Event
+|-
+| [[1071]]
+|
+| Battle of Manzikert; beginning of Byzantine decline in
+Anatolia continues here on a second physical line with no leading pipe.
+|-| [[1204]] || || Sack of Constantinople during the [[Fourth Crusade]]
+|- some vandal editor scribbled random text here that is not a cell at all
+| [[1453]]
+|
+| Fall of [[Constantinople]] to the [[Ottoman Empire]]
+|}
