@@ -74,20 +74,33 @@ DR_TEMPLATE_RE = re.compile(r"\{\{dr\|[^|}]*\|[^|}]*\|(-?\d+)\|[^}]*\}\}")
 
 HEADER_LABELS = {"year", "date", "event", "events"}
 
+REF_SELF_CLOSING_RE = re.compile(r"<ref[^>]*/>")
+REF_FULL_RE = re.compile(r"<ref.*?</ref>", re.DOTALL)
+
+
+def _strip_refs(text: str) -> str:
+    """Remove <ref>...</ref> footnotes (and self-closing <ref .../>)."""
+    text = REF_SELF_CLOSING_RE.sub("", text)
+    text = REF_FULL_RE.sub("", text)
+    return text
+
 
 def fetch_wikitext(page_title: str) -> str:
-    """Fetch raw wikitext for a page via the Wikipedia API."""
+    """Fetch raw wikitext for a page via the Wikipedia API's revisions
+    endpoint (action=query&prop=revisions&rvslots=main)."""
     params = {
-        "action": "parse",
-        "page": page_title,
-        "prop": "wikitext",
+        "action": "query",
+        "titles": page_title,
+        "prop": "revisions",
+        "rvprop": "content",
+        "rvslots": "main",
         "format": "json",
-        "formatversion": "2",
     }
     resp = requests.get(WIKI_API, params=params, headers=HEADERS, timeout=30)
     resp.raise_for_status()
     data = resp.json()
-    return data["parse"]["wikitext"]
+    page = next(iter(data["query"]["pages"].values()))
+    return page["revisions"][0]["slots"]["main"]["*"]
 
 
 def expand_dr_template(text: str) -> str:
@@ -138,9 +151,7 @@ def strip_wiki_markup(text: str) -> str:
     """Remove wiki links/templates/refs, keep plain readable text."""
     text = expand_dr_template(text)
     text = strip_cell_attributes(text)
-    # Remove <ref>...</ref> footnotes (and self-closing <ref .../>)
-    text = re.sub(r"<ref[^>]*/>", "", text)
-    text = re.sub(r"<ref.*?</ref>", "", text, flags=re.DOTALL)
+    text = _strip_refs(text)
     # [[Link|Display]] -> Display ; [[Link]] -> Link
     text = re.sub(r"\[\[([^\]|]+)\|([^\]]+)\]\]", r"\2", text)
     text = re.sub(r"\[\[([^\]]+)\]\]", r"\1", text)
@@ -158,20 +169,23 @@ LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]")
 
 def extract_links(text: str):
     """
-    Pull [[Target|Display]] / [[Target]] wiki-link targets out of a cell's
-    raw text, for later resolving to Wikidata IDs. Must run on text that
-    still has <ref>...</ref> citation footnotes removed (citation
-    templates often contain their own wikilinks, e.g. to publishers,
-    which we don't want to treat as event-relevant entities).
+    Pull [[Target|Display]] / [[Target]] wiki-link targets out of raw
+    text, returning a list of (target, display) tuples in document order.
+    Anchor links (e.g. [[Page#Section|label]]) are not matched.
+
+    Deliberately has NO awareness of <ref>...</ref> citation footnotes --
+    this is a pure "find the links in this text" function. The caller
+    (parse_timeline) is responsible for stripping citation footnotes out
+    BEFORE calling this, so links embedded inside citations (e.g. a
+    publisher link in a {{cite}} template) aren't treated as
+    event-relevant entities. Keeping that stripping out of this function
+    keeps its contract simple and independently testable.
     """
-    text = strip_cell_attributes(expand_dr_template(text))
-    text = re.sub(r"<ref[^>]*/>", "", text)
-    text = re.sub(r"<ref.*?</ref>", "", text, flags=re.DOTALL)
     links = []
     for m in LINK_RE.finditer(text):
         target = m.group(1).strip()
         display = (m.group(2) or target).strip()
-        links.append({"wiki_title": target, "text": display})
+        links.append((target, display))
     return links
 
 
@@ -198,6 +212,17 @@ def parse_timeline(wikitext: str):
         (e.g. "|-| {{dr|...}} || ...") as well as stray non-table text
         accidentally glued onto a "|-" line (article vandalism / typos),
         which is simply discarded.
+
+    Each returned dict has:
+      "year"         -- astronomical year as an int (via normalize_year),
+                         or None if unparseable
+      "year_display" -- the original display string, e.g. "753 BC"
+      "era"          -- the enclosing "== Century ==" section title
+      "date"         -- cleaned date text (may be "")
+      "event"        -- cleaned event text
+      "links"        -- list of (target, display) tuples extracted from
+                         the event text, with citation footnotes already
+                         stripped out first (see extract_links)
     """
     rows = []
     pending_cells = []
@@ -265,7 +290,7 @@ def parse_timeline(wikitext: str):
 
     flush_row()
 
-    current_year = None
+    current_year_display = None
     parsed = []
     for era, raw_cells in rows:
         cells = [strip_wiki_markup(c) for c in raw_cells]
@@ -276,35 +301,39 @@ def parse_timeline(wikitext: str):
             continue
 
         if len(cells) >= 3:
-            year, date, event = cells[0], cells[1], " ".join(cells[2:]).strip()
+            year_display, date, event = cells[0], cells[1], " ".join(cells[2:]).strip()
             raw_event_cell = " ".join(raw_cells[2:])
         elif len(cells) == 2:
-            year, date, event = "", cells[0], cells[1]
+            year_display, date, event = "", cells[0], cells[1]
             raw_event_cell = raw_cells[1]
         elif len(cells) == 1:
-            year, date, event = "", "", cells[0]
+            year_display, date, event = "", "", cells[0]
             raw_event_cell = raw_cells[0]
         else:
             continue
 
-        if year:
-            current_year = year
+        if year_display:
+            current_year_display = year_display
         else:
-            year = current_year
+            year_display = current_year_display
 
         event = event.strip()
         if not event:
             continue
 
-        links = extract_links(raw_event_cell)
+        # Strip citation footnotes BEFORE extracting links, so a link
+        # buried inside a <ref>{{cite ...}}</ref> (e.g. a publisher link)
+        # isn't picked up as an event-relevant entity. extract_links()
+        # itself has no ref-awareness -- that's this function's job.
+        links = extract_links(_strip_refs(raw_event_cell))
 
         parsed.append({
-            "year": year or "",
-            "year_normalized": normalize_year(year),
+            "year": normalize_year(year_display),
+            "year_display": year_display or "",
             "era": era or "",
             "date": date or "",
             "event": event,
-            "wiki_links": links,
+            "links": links,
         })
 
     return parsed
@@ -315,7 +344,7 @@ def parse_timeline(wikitext: str):
 YEAR_RE = re.compile(r"^(?:AD\s*)?(\d+)\s*(BC)?$", re.IGNORECASE)
 
 
-def normalize_year(year_str: str):
+def normalize_year(year_str):
     """
     Convert a display year string into a single signed integer using
     astronomical year numbering, so the whole timeline sorts/filters
@@ -326,7 +355,7 @@ def normalize_year(year_str: str):
         AD 1  -> 1
         AD 98 -> 98
         1071  -> 1071
-    Returns None if the year string can't be parsed (e.g. empty).
+    Returns None if the year string is empty/None or can't be parsed.
     """
     if not year_str:
         return None
@@ -343,28 +372,19 @@ def run(output=DEFAULT_OUTPUT, output_csv=DEFAULT_OUTPUT_CSV,
     """
     Fetch + parse the timeline article, writing events JSON/CSV and a raw
     wikitext dump. Returns the path to the events JSON (as a string), or
-    None if dry_run.
+    None if dry_run. Always fetches (even during a dry-run) so the
+    preview reflects the current live article rather than stale data.
     """
-    raw_path = Path(raw_output)
-
-    if dry_run:
-        if raw_path.exists():
-            log.info(f"[dry-run] Found existing {raw_path}, parsing it to preview output "
-                      f"(skipping network fetch)")
-            wikitext = raw_path.read_text(encoding="utf-8")
-            events = parse_timeline(wikitext)
-            log.info(f"[dry-run] Would parse {len(events)} events and write to "
-                      f"{output} / {output_csv}")
-        else:
-            log.info(f"[dry-run] Would fetch wikitext for '{page_title}' from Wikipedia, "
-                      f"write raw dump to {raw_output}, parse it, and write events to "
-                      f"{output} / {output_csv}. (No cached raw wikitext found to preview "
-                      f"actual counts.)")
-        return None
-
     log.info(f"Fetching wikitext for '{page_title}'...")
     wikitext = fetch_wikitext(page_title)
 
+    if dry_run:
+        events = parse_timeline(wikitext)
+        log.info(f"[dry-run] Would parse {len(events)} events and write to "
+                 f"{output} / {output_csv} (raw wikitext to {raw_output})")
+        return None
+
+    raw_path = Path(raw_output)
     raw_path.parent.mkdir(parents=True, exist_ok=True)
     raw_path.write_text(wikitext, encoding="utf-8")
     log.info(f"Saved raw wikitext to {raw_path}")
@@ -381,14 +401,14 @@ def run(output=DEFAULT_OUTPUT, output_csv=DEFAULT_OUTPUT_CSV,
     csv_rows = []
     for e in events:
         row = dict(e)
-        row["wiki_links"] = "|".join(l["wiki_title"] for l in e["wiki_links"])
+        row["links"] = "|".join(target for target, _ in e["links"])
         csv_rows.append(row)
 
     output_csv_path = Path(output_csv)
     output_csv_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(
-            f, fieldnames=["year", "year_normalized", "era", "date", "event", "wiki_links"]
+            f, fieldnames=["year", "year_display", "era", "date", "event", "links"]
         )
         writer.writeheader()
         writer.writerows(csv_rows)
@@ -408,7 +428,7 @@ def build_arg_parser():
     parser.add_argument("--page-title", default=PAGE_TITLE,
                          help=f"Wikipedia page title to fetch (default: '{PAGE_TITLE}')")
     parser.add_argument("--dry-run", action="store_true",
-                         help="Don't fetch or write files; log what would happen")
+                         help="Don't write files; log what would happen (still fetches)")
     parser.add_argument("--log-level", default="INFO",
                          choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
