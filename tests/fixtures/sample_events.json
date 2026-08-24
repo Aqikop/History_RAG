@@ -1,0 +1,163 @@
+[
+  {
+    "year": "754 BC",
+    "year_normalized": -753,
+    "era": "8th century BC",
+    "date": "",
+    "event": "Battle of Alba Longa. King of Alba Longa, Amulius, is defeated and killed by his brother Numitor and Romulus.",
+    "wiki_links": [
+      {
+        "wiki_title": "Battle of Alba Longa",
+        "text": "Battle of Alba Longa"
+      },
+      {
+        "wiki_title": "Alba Longa",
+        "text": "Alba Longa"
+      },
+      {
+        "wiki_title": "Amulius",
+        "text": "Amulius"
+      },
+      {
+        "wiki_title": "Numitor",
+        "text": "Numitor"
+      },
+      {
+        "wiki_title": "Romulus",
+        "text": "Romulus"
+      }
+    ]
+  },
+  {
+    "year": "509 BC",
+    "year_normalized": -508,
+    "era": "6th century BC",
+    "date": "",
+    "event": "The Roman Kingdom ends and the Republic is established after the expulsion of Tarquin the Proud.",
+    "wiki_links": [
+      {
+        "wiki_title": "Roman Republic",
+        "text": "Roman Republic"
+      },
+      {
+        "wiki_title": "Lucius Tarquinius Superbus",
+        "text": "Tarquin the Proud"
+      }
+    ]
+  },
+  {
+    "year": "44 BC",
+    "year_normalized": -43,
+    "era": "1st century BC",
+    "date": "",
+    "event": "Assassination of Julius Caesar on the Ides of March.",
+    "wiki_links": [
+      {
+        "wiki_title": "Julius Caesar",
+        "text": "Julius Caesar"
+      }
+    ]
+  },
+  {
+    "year": "43 BC",
+    "year_normalized": -42,
+    "era": "1st century BC",
+    "date": "",
+    "event": "Formation of the Second Triumvirate.",
+    "wiki_links": []
+  },
+  {
+    "year": "AD 14",
+    "year_normalized": 14,
+    "era": "1st century AD",
+    "date": "19 August",
+    "event": "Augustus died. Germanicus was appointed commander of Germanic forces.",
+    "wiki_links": [
+      {
+        "wiki_title": "Augustus",
+        "text": "Augustus"
+      },
+      {
+        "wiki_title": "Germanicus",
+        "text": "Germanicus"
+      }
+    ]
+  },
+  {
+    "year": "AD 98",
+    "year_normalized": 98,
+    "era": "1st century AD",
+    "date": "27 January",
+    "event": "Nerva died and was succeeded by Trajan.",
+    "wiki_links": [
+      {
+        "wiki_title": "Nerva",
+        "text": "Nerva"
+      },
+      {
+        "wiki_title": "Trajan",
+        "text": "Trajan"
+      }
+    ]
+  },
+  {
+    "year": "1071",
+    "year_normalized": 1071,
+    "era": "11th century",
+    "date": "",
+    "event": "Battle of Manzikert.",
+    "wiki_links": [
+      {
+        "wiki_title": "Battle of Manzikert",
+        "text": "Battle of Manzikert"
+      }
+    ]
+  },
+  {
+    "year": "1204",
+    "year_normalized": 1204,
+    "era": "13th century",
+    "date": "",
+    "event": "Sack of Constantinople during the Fourth Crusade.",
+    "wiki_links": [
+      {
+        "wiki_title": "Constantinople",
+        "text": "Constantinople"
+      },
+      {
+        "wiki_title": "Fourth Crusade",
+        "text": "Fourth Crusade"
+      }
+    ]
+  },
+  {
+    "year": "1453",
+    "year_normalized": 1453,
+    "era": "15th century",
+    "date": "",
+    "event": "Fall of Constantinople to the Ottoman Empire.",
+    "wiki_links": [
+      {
+        "wiki_title": "Constantinople",
+        "text": "Constantinople"
+      },
+      {
+        "wiki_title": "Ottoman Empire",
+        "text": "Ottoman Empire"
+      }
+    ]
+  },
+  {
+    "year": "500 BC",
+    "year_normalized": -499,
+    "era": "6th century BC",
+    "date": "",
+    "event": "Typo link: Epaphropditus was a freedman.",
+    "wiki_links": [
+      {
+        "wiki_title": "Epaphropditus (freedman of Nero)",
+        "text": "Epaphropditus"
+      }
+    ]
+  }
+]
