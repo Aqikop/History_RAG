@@ -2,7 +2,7 @@ name: Python CI
 
 on:
   push:
-    path:
+    paths:
       - "src/**"
       - "tests/**"
   pull_request: 
