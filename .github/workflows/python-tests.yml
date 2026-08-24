@@ -1,6 +1,11 @@
 name: Python CI
 
-on: [push]
+on:
+  push:
+    path:
+      - "src/**"
+      - "tests/**"
+  pull_request: 
 
 jobs:
   test:
