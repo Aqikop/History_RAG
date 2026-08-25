@@ -80,7 +80,7 @@ def build_chunks(events):
     groups = {}
     order = []
     for event in events:
-        key = event["year_normalized"]
+        key = event.get("year_normalized", event.get("year"))
         if key not in groups:
             groups[key] = []
             order.append(key)
@@ -90,7 +90,7 @@ def build_chunks(events):
     for key in sorted(order, key=lambda k: (k is None, k)):
         group = groups[key]
         
-        year = group[0]["year"]
+        year = group[0].get("year_display", group[0].get("year", ""))
         era = group[0]["era"]
         
         # Collect unique non-empty dates
