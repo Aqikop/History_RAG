@@ -330,6 +330,7 @@ def parse_timeline(wikitext: str):
         parsed.append({
             "year": normalize_year(year_display),
             "year_display": year_display or "",
+            "year_normalized": normalize_year(year_display),
             "era": era or "",
             "date": date or "",
             "event": event,
@@ -408,7 +409,7 @@ def run(output=DEFAULT_OUTPUT, output_csv=DEFAULT_OUTPUT_CSV,
     output_csv_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_csv_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(
-            f, fieldnames=["year", "year_display", "era", "date", "event", "links"]
+            f, fieldnames=["year", "year_display", "year_normalized", "era", "date", "event", "links"]
         )
         writer.writeheader()
         writer.writerows(csv_rows)
