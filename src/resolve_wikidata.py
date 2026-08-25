@@ -140,9 +140,13 @@ def _resolve_one_batch(batch, results):
     norm_map = {n["from"]: n["to"] for n in query.get("normalized", [])}
     redir_map = {r["from"]: r["to"] for r in query.get("redirects", [])}
     
-    # Pages come back as a dict keyed by page ID (not a list)
+    # Pages come back as a dict keyed by page ID (formatversion=2)
+    # or as a list (formatversion=1). Normalize to dict by title.
     pages_dict = query.get("pages", {})
-    pages_by_title = {p["title"]: p for p in pages_dict.values()}
+    if isinstance(pages_dict, list):
+        pages_by_title = {p["title"]: p for p in pages_dict}
+    else:
+        pages_by_title = {p["title"]: p for p in pages_dict.values()}
     
     for original in batch:
         current = original
