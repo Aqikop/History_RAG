@@ -1,2 +1,5 @@
 requests
 pytest>=7.0
+python-dotenv
+sentence-transformers
+qdrant-client
